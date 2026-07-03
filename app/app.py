@@ -1,6 +1,6 @@
 from fastapi import FastAPI,HTTPException,File,UploadFile, Form, Depends
 from app.schemas import PostCreate,PostResponse
-from app.db import Post,create_db_and_tables,get_async_session
+from app.db import Post, User, create_db_and_tables, get_async_session
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 from sqlalchemy.future import select
@@ -77,14 +77,16 @@ async def upload_file(file:UploadFile=File(...),
 
 @app.get("/feed")
 async def get_feed(session: AsyncSession = Depends(get_async_session),user:UserRead=Depends(current_active_user)):
-    result = await session.execute(select(Post).order_by(Post.created_at.desc()))
-    posts=[row[0] for row in result.all()]
-    users=[row[0] for row in result.all()]
-    user_dict={u.id:u.email for u in users}
+    result = await session.execute(
+        select(Post, User.email)
+        .outerjoin(User, Post.user_id == User.id)
+        .order_by(Post.created_at.desc())
+    )
+    rows = result.all()
 
     posts_data=[]
 
-    for post in posts:
+    for post, email in rows:
         posts_data.append({
             "id":str(post.id),
             "user_id":str(post.user_id),
@@ -94,7 +96,7 @@ async def get_feed(session: AsyncSession = Depends(get_async_session),user:UserR
             "file_name":post.file_name,
             "created_at":post.created_at.isoformat(),
             "is_owner":post.user_id==user.id,
-            "email":user_dict.get(post.user_id,"Unknown") 
+            "email":email or "Unknown" 
         })
     return posts_data
 
